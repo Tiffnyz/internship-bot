@@ -308,9 +308,9 @@ def process_commit(repo_config, sha):
             if cells:
                 company_names.append(extract_company_name(cells[0]))
 
-    # Company names first so they show in mobile notification
+    # Company names first, bolded, so they show in mobile notification preview
     names_str = ", ".join(dict.fromkeys(company_names))  # dedupe, preserve order
-    header = f"{names_str}\n{mention} **New internship(s)!** [{label}]\n\n"
+    header = f"**{names_str}**\n**New internship(s)!** [{label}]\n\n"
 
     # Group by source file
     sections = {}
@@ -330,7 +330,7 @@ def process_commit(repo_config, sha):
 
     repo_url = f"https://github.com/{repo}"
     commit_url = f"{repo_url}/commit/{sha}"
-    body += f"📂 [Repo]({repo_url}) | [View commit]({commit_url})"
+    body += f"📂 [Repo]({repo_url}) | [View commit]({commit_url})\n{mention}"
 
     send_discord(header + body)
     print(f"  → Notified: {len(rows)} new posting(s) from {repo}")
