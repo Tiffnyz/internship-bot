@@ -111,7 +111,7 @@ def parse_added_rows(diff_text, allowed_files=None):
                     continue
                 # Must have at least a company and role
                 tds = re.findall(r'<td[^>]*>(.*?)</td>', current_tr)
-                if len(tds) >= 2:
+                if len(tds) >= 2 and not should_skip_row(current_tr):
                     rows.append(current_tr)
                     file_labels[current_tr] = current_file
                 current_tr = ""
@@ -121,10 +121,50 @@ def parse_added_rows(diff_text, allowed_files=None):
         if clean.startswith("|") and clean.count("|") >= 3:
             if "---" in clean or "Company" in clean or "↳" in clean:
                 continue
+            if should_skip_row(clean):
+                continue
             rows.append(clean)
             file_labels[clean] = current_file
 
     return rows, file_labels
+
+
+def should_skip_row(row):
+    """Return True if this row should be filtered out (PhD, grad-level, or old)."""
+    row_lower = row.lower()
+
+    # Skip PhD and graduate-level positions
+    phd_keywords = ["phd", "ph.d", "doctoral", "postdoc", "post-doc",
+                    "graduate research", "grad research", "masters", "master's"]
+    for kw in phd_keywords:
+        if kw in row_lower:
+            return True
+
+    # Check age — skip anything older than 7 days
+    # Simplify format: <td>1mo</td>, <td>25d</td>, <td>0d</td>
+    age_match = re.search(r'(\d+)(mo|d|wk)', row_lower)
+    if age_match:
+        num = int(age_match.group(1))
+        unit = age_match.group(2)
+        if unit == "mo":
+            return True  # Months old — skip
+        if unit == "wk" and num >= 1:
+            return True  # 1+ weeks old — skip
+        if unit == "d" and num > 7:
+            return True  # More than 7 days — skip
+
+    # speedyapply format: | 40d | or | 4d |
+    pipe_age = re.findall(r'\|\s*(\d+)(d|mo|wk)\s*\|', row_lower)
+    for num_str, unit in pipe_age:
+        num = int(num_str)
+        if unit == "mo":
+            return True
+        if unit == "wk" and num >= 1:
+            return True
+        if unit == "d" and num > 7:
+            return True
+
+    return False
 
 
 def extract_apply_link(text):
