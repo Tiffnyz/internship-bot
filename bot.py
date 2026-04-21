@@ -27,8 +27,8 @@ REPOS = [
         "files": ["README.md"],
     },
     {
-        "repo": "alay02/quant-internships",
-        "label": "Quant Internships",
+        "repo": "speedyapply/2026-SWE-College-Jobs",
+        "label": "SWE College Jobs",
         "files": None,  # Watch all .md files
     },
 ]
