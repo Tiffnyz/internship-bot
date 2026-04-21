@@ -17,13 +17,18 @@ POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL", "60"))
 # Repos to watch
 REPOS = [
     {
-        "repo": "pittcsc/Summer2026-Internships",
-        "label": "Summer 2026",
+        "repo": "SimplifyJobs/Summer2026-Internships",
+        "label": "Summer 2026 Internships",
         "files": ["README.md", "README-Off-Season.md"],
     },
     {
+        "repo": "SimplifyJobs/New-Grad-Positions",
+        "label": "New Grad (SWE/Quant/PM)",
+        "files": ["README.md"],
+    },
+    {
         "repo": "alay02/quant-internships",
-        "label": "Quant",
+        "label": "Quant Internships",
         "files": None,  # Watch all .md files
     },
 ]
