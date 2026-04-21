@@ -56,9 +56,16 @@ def get_commit_diff(sha):
 
 
 def parse_added_rows(diff_text):
-    """Extract added markdown table rows from a diff."""
+    """Extract added markdown table rows from the Summer 2026 README only."""
     rows = []
+    current_file = ""
     for line in diff_text.splitlines():
+        # Track which file we're in
+        if line.startswith("+++ b/"):
+            current_file = line[6:]
+        # Only care about README.md (Summer 2026), skip Off-Season
+        if current_file != "README.md":
+            continue
         if line.startswith("+") and not line.startswith("+++"):
             clean = line[1:].strip()
             if clean.startswith("|") and clean.count("|") >= 3:
