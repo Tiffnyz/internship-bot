@@ -71,36 +71,96 @@ def get_commit_diff(repo, sha):
 
 
 def parse_added_rows(diff_text, allowed_files=None):
-    """Extract added markdown table rows. If allowed_files is set, only those files."""
+    """Extract new internship entries from diff. Handles both markdown and HTML tables."""
     rows = []
     current_file = ""
-    file_labels = {}  # row -> which file it came from
+    file_labels = {}
+    # Buffer for multi-line HTML table rows (<tr>...</tr>)
+    current_tr = ""
+    in_added_tr = False
 
     for line in diff_text.splitlines():
         if line.startswith("+++ b/"):
             current_file = line[6:]
             continue
 
-        # Filter by allowed files
         if allowed_files and current_file not in allowed_files:
             continue
-        # For repos with no filter, only look at .md files
         if not allowed_files and not current_file.endswith(".md"):
             continue
 
-        if line.startswith("+") and not line.startswith("+++"):
-            clean = line[1:].strip()
-            if clean.startswith("|") and clean.count("|") >= 3:
-                if "---" in clean or "Company" in clean or "↳" in clean:
+        if not line.startswith("+") or line.startswith("+++"):
+            in_added_tr = False
+            current_tr = ""
+            continue
+
+        clean = line[1:].strip()
+
+        # HTML table format (Simplify repos)
+        if "<tr>" in clean:
+            in_added_tr = True
+            current_tr = ""
+            continue
+        if in_added_tr:
+            current_tr += " " + clean
+            if "</tr>" in clean:
+                in_added_tr = False
+                # Skip header rows, sub-rows, and inactive/closed entries
+                if "↳" in current_tr or "Company" in current_tr:
+                    current_tr = ""
                     continue
-                rows.append(clean)
-                file_labels[clean] = current_file
+                # Must have at least a company and role
+                tds = re.findall(r'<td[^>]*>(.*?)</td>', current_tr)
+                if len(tds) >= 2:
+                    rows.append(current_tr)
+                    file_labels[current_tr] = current_file
+                current_tr = ""
+            continue
+
+        # Markdown pipe table format (speedyapply)
+        if clean.startswith("|") and clean.count("|") >= 3:
+            if "---" in clean or "Company" in clean or "↳" in clean:
+                continue
+            rows.append(clean)
+            file_labels[clean] = current_file
 
     return rows, file_labels
 
 
+def extract_apply_link(text):
+    """Extract the actual job application URL from a row."""
+    # Look for <a href="..."><img ... alt="Apply"> (Simplify and speedyapply format)
+    apply_match = re.search(r'<a href="([^"]+)"[^>]*>\s*<img[^>]*alt="Apply"', text)
+    if apply_match:
+        return apply_match.group(1)
+    # Fallback: markdown link format [Apply](url)
+    md_match = re.search(r'\[Apply\]\((.*?)\)', text)
+    if md_match:
+        return md_match.group(1)
+    return ""
+
+
+def extract_company_name(text):
+    """Extract company name from HTML or markdown."""
+    # HTML: <strong><a href="...">Company</a></strong> or <a href="..."><strong>Company</strong></a>
+    html_match = re.search(r'<(?:strong|a)[^>]*>(?:<(?:strong|a)[^>]*>)?([^<]+)', text)
+    if html_match:
+        return html_match.group(1).strip()
+    # Markdown: [Company](url)
+    md_match = re.search(r'\[([^\]]+)\]', text)
+    if md_match:
+        return md_match.group(1).strip()
+    # Strip all HTML tags
+    return re.sub(r'<[^>]+>', '', text).strip()
+
+
 def format_row(row):
-    cells = [c.strip() for c in row.split("|")[1:-1]]
+    # Handle both pipe-delimited markdown and HTML <td> rows
+    if "<td>" in row:
+        cells = re.findall(r'<td[^>]*>(.*?)</td>', row)
+    else:
+        cells = [c.strip() for c in row.split("|")[1:-1]]
+
     if len(cells) < 2:
         return row
 
@@ -108,19 +168,23 @@ def format_row(row):
     role = cells[1] if len(cells) > 1 else ""
     location = cells[2] if len(cells) > 2 else ""
 
-    link_match = re.search(r"\[.*?\]\((.*?)\)", row)
-    link = link_match.group(1) if link_match else ""
+    apply_link = extract_apply_link(row)
+    company_clean = extract_company_name(company)
 
-    company_clean = re.sub(r"\[([^\]]+)\]\([^\)]+\)", r"\1", company).strip()
+    # Clean role of HTML
+    role_clean = re.sub(r'<[^>]+>', '', role).strip()
+    # Clean location of HTML
+    location_clean = re.sub(r'<[^>]+>', '', location).strip().replace("<br>", ", ")
 
     text = f"**{company_clean}**"
-    if role:
-        role_clean = re.sub(r"\[([^\]]+)\]\([^\)]+\)", r"\1", role).strip()
+    if role_clean:
         text += f" — {role_clean}"
-    if location:
-        text += f" ({location})"
-    if link:
-        text += f"\n🔗 {link}"
+    if location_clean:
+        text += f" ({location_clean})"
+    if apply_link:
+        text += f"\n🔗 **Apply:** {apply_link}"
+    else:
+        text += "\n🔒 Application closed"
     return text
 
 
@@ -172,8 +236,9 @@ def process_commit(repo_config, sha):
         if len(section_rows) > 8:
             body += f"_...and {len(section_rows) - 8} more_\n\n"
 
-    commit_url = f"https://github.com/{repo}/commit/{sha}"
-    body += f"[View commit]({commit_url})"
+    repo_url = f"https://github.com/{repo}"
+    commit_url = f"{repo_url}/commit/{sha}"
+    body += f"📂 [Repo]({repo_url}) | [View commit]({commit_url})"
 
     send_discord(header + body)
     print(f"  → Notified: {len(rows)} new posting(s) from {repo}")
