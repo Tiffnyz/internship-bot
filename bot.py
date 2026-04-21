@@ -1,8 +1,12 @@
 import json
 import os
 import re
+import sys
 import time
 from pathlib import Path
+
+# Force unbuffered output so prints show up immediately
+sys.stdout.reconfigure(line_buffering=True)
 
 import requests
 
@@ -146,11 +150,14 @@ def poll():
 
     while True:
         try:
+            print(f"[{time.strftime('%H:%M:%S')}] Polling...")
             commits = get_recent_commits()
             new_commits = [c for c in commits if c["sha"] not in seen]
 
             if new_commits:
                 print(f"Found {len(new_commits)} new commit(s)")
+            else:
+                print(f"[{time.strftime('%H:%M:%S')}] No new commits.")
                 # Process oldest first
                 for commit in reversed(new_commits):
                     sha = commit["sha"]
