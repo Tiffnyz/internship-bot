@@ -140,6 +140,44 @@ def should_skip_row(row):
         if kw in row_lower:
             return True
 
+    # Skip international (non-US) locations
+    intl_indicators = ["canada", ", ca$", ", uk", ", uk,", "united kingdom",
+                       "london, uk", "cambridge, uk", "ireland", "germany",
+                       "india", "singapore", "japan", "australia", "france",
+                       "netherlands", "switzerland", "brazil", "mexico",
+                       "israel", "china", "korea", "taiwan", "hong kong",
+                       ", on,", ", on ", ", bc,", ", bc ", ", ab,", ", qc,",
+                       "toronto", "montreal", "vancouver", "waterloo",
+                       "ontario", "quebec", "british columbia", "alberta"]
+    # Check location cell specifically
+    loc_text = ""
+    if "<td>" in row:
+        tds = re.findall(r'<td[^>]*>(.*?)</td>', row)
+        if len(tds) >= 3:
+            loc_text = re.sub(r'<[^>]+>', '', tds[2]).lower().strip()
+    else:
+        cells = [c.strip() for c in row.split("|")[1:-1]]
+        if len(cells) >= 3:
+            loc_text = cells[2].lower().strip()
+
+    if loc_text:
+        for indicator in intl_indicators:
+            if indicator in loc_text:
+                return True
+        # If location doesn't mention a US state/city, check for ", XX" country codes
+        # that aren't US states
+        non_us = re.search(r', ([A-Z]{2})(?:\s|$|,|\|)', row)
+        if non_us:
+            code = non_us.group(1)
+            us_states = {"AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA",
+                        "HI","ID","IL","IN","IA","KS","KY","LA","ME","MD",
+                        "MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ",
+                        "NM","NY","NC","ND","OH","OK","OR","PA","RI","SC",
+                        "SD","TN","TX","UT","VT","VA","WA","WV","WI","WY",
+                        "DC"}
+            if code not in us_states and code != "US":
+                return True
+
     # Check age — skip anything older than 7 days
     # Simplify format: <td>1mo</td>, <td>25d</td>, <td>0d</td>
     age_match = re.search(r'(\d+)(mo|d|wk)', row_lower)
@@ -258,6 +296,22 @@ def process_commit(repo_config, sha):
 
     mention = f"<@{DISCORD_USER_ID}>"
 
+    # Extract company names for the top line
+    company_names = []
+    for row in rows:
+        if "<td>" in row:
+            tds = re.findall(r'<td[^>]*>(.*?)</td>', row)
+            if tds:
+                company_names.append(extract_company_name(tds[0]))
+        else:
+            cells = [c.strip() for c in row.split("|")[1:-1]]
+            if cells:
+                company_names.append(extract_company_name(cells[0]))
+
+    # Company names first so they show in mobile notification
+    names_str = ", ".join(dict.fromkeys(company_names))  # dedupe, preserve order
+    header = f"{names_str}\n{mention} **New internship(s)!** [{label}]\n\n"
+
     # Group by source file
     sections = {}
     for row in rows:
@@ -265,9 +319,7 @@ def process_commit(repo_config, sha):
         source_label = file_to_label(source)
         sections.setdefault(source_label, []).append(row)
 
-    header = f"{mention} **New internship(s) posted!** [{label}]\n\n"
     body = ""
-
     for section, section_rows in sections.items():
         if len(sections) > 1:
             body += f"__**{section}**__\n"
