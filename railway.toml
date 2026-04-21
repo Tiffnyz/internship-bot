@@ -1,0 +1,4 @@
+[deploy]
+startCommand = "python -u bot.py"
+healthcheckPath = ""
+restartPolicyType = "ON_FAILURE"
