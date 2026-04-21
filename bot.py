@@ -260,7 +260,7 @@ def format_row(row):
     if location_clean:
         text += f" ({location_clean})"
     if apply_link:
-        text += f"\n🔗 **Apply:** {apply_link}"
+        text += f"\n🔗 **Apply:** <{apply_link}>"
     else:
         text += "\n🔒 Application closed"
     return text
