@@ -341,17 +341,20 @@ def poll():
     print(f"Internship bot started. Polling {len(REPOS)} repos every {POLL_INTERVAL}s...")
     print(f"Repos: {', '.join(r['repo'] for r in REPOS)}")
 
-    # First run: mark existing commits as seen
+    # On startup, always mark all current commits as seen to avoid re-notifying
+    # (Railway's filesystem is ephemeral — seen_commits.json is lost on redeploy)
     for repo_config in REPOS:
         repo = repo_config["repo"]
-        if repo not in seen:
-            print(f"First run for {repo} — marking existing commits as seen...")
-            try:
-                commits = get_recent_commits(repo)
-                seen[repo] = [c["sha"] for c in commits]
-                print(f"  Marked {len(seen[repo])} commits as seen.")
-            except Exception as e:
-                print(f"  Error: {e}")
+        print(f"Syncing {repo} — marking current commits as seen...")
+        try:
+            commits = get_recent_commits(repo)
+            existing = set(seen.get(repo, []))
+            existing.update(c["sha"] for c in commits)
+            seen[repo] = list(existing)[-100:]
+            print(f"  Tracking {len(seen[repo])} commits.")
+        except Exception as e:
+            print(f"  Error: {e}")
+            if repo not in seen:
                 seen[repo] = []
     save_seen(seen)
 
@@ -369,8 +372,12 @@ def poll():
                         sha = commit["sha"]
                         message = commit["commit"]["message"]
                         print(f"  Processing: {message[:60]}")
-                        process_commit(repo_config, sha)
+                        # Mark as seen BEFORE processing so we never retry on failure
                         seen_set.add(sha)
+                        try:
+                            process_commit(repo_config, sha)
+                        except Exception as e:
+                            print(f"  Error processing {sha[:8]}: {e}")
 
                     # Keep last 100 shas per repo
                     seen[repo] = list(seen_set)[-100:]
