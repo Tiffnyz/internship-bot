@@ -17,45 +17,88 @@ POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL", "60"))
 # UTC offset for recap times (e.g., -4 for EDT, -5 for EST)
 TIMEZONE_OFFSET = int(os.environ.get("TIMEZONE_OFFSET", "-5"))
 
-# Priority companies (case-insensitive matching)
-PRIORITY_COMPANIES = {
-    # SWE
-    "meta", "apple", "amazon", "netflix", "google", "microsoft", "nvidia", "tesla",
-    "linkedin", "bytedance", "tiktok", "stripe", "databricks", "snowflake", "airbnb",
-    "uber", "doordash", "palantir", "anduril", "spacex", "coinbase", "robinhood",
-    "block", "shopify", "pinterest", "snap", "spotify", "reddit", "roblox", "discord",
-    "salesforce", "oracle", "figma", "notion", "canva", "plaid", "ramp", "rippling",
-    # ML
-    "openai", "anthropic", "google deepmind", "deepmind", "meta ai", "xai", "mistral",
-    "mistral ai", "cohere", "nvidia research", "microsoft ai", "apple aiml",
-    "amazon agi", "tesla ai", "hugging face", "huggingface", "perplexity", "scale ai",
-    "scale", "runway", "midjourney", "stability ai", "luma", "pika", "character.ai",
-    "character ai", "adept", "waymo", "zoox", "aurora", "wayve", "figure", "1x",
-    "skild", "physical intelligence",
-    # Quant
-    "jane street", "citadel securities", "citadel", "hudson river trading", "hrt",
-    "jump trading", "two sigma securities", "two sigma", "tower research",
+# Only notify for these companies (case-insensitive matching)
+WATCHLIST = {
+    # Big Tech
+    "meta", "google", "apple", "amazon", "netflix", "microsoft", "nvidia", "linkedin",
+    "tesla", "bytedance", "tiktok",
+    # Fintech / Payments / Trading
+    "stripe", "ramp", "brex", "plaid", "block", "robinhood", "coinbase", "affirm",
+    "sofi", "chime", "mercury",
+    # Quant / Finance
+    "citadel", "citadel securities", "jane street", "two sigma", "two sigma securities",
+    "jump trading", "hudson river trading", "hrt", "bridgewater", "tower research",
     "tower research capital", "optiver", "imc trading", "imc", "susquehanna", "sig",
     "drw", "xtx markets", "xtx", "virtu financial", "virtu", "flow traders",
     "five rings", "headlands technologies", "headlands", "akuna capital", "akuna",
     "old mission capital", "old mission", "belvedere", "wolverine",
     "chicago trading company", "ctc", "d. e. shaw", "de shaw", "d.e. shaw",
     "renaissance technologies", "rentec", "pdt partners", "millennium",
-    "point72", "cubist", "balyasny", "aqr capital", "aqr", "bridgewater",
+    "point72", "cubist", "balyasny", "aqr capital", "aqr",
     "g-research", "qube research", "squarepoint",
+    # Data / Infra / Dev Tools
+    "databricks", "snowflake", "cloudflare", "hashicorp", "vercel", "mongodb",
+    "datadog", "confluent", "elastic", "github", "gitlab", "docker", "sentry",
+    "linear", "retool", "airtable", "zapier", "sourcegraph", "planetscale",
+    "supabase", "pinecone", "clickhouse",
+    # AI Labs / AI Startups
+    "openai", "anthropic", "xai", "perplexity", "mistral", "mistral ai", "cohere",
+    "scale ai", "scale", "hugging face", "huggingface", "cursor", "cognition",
+    "codeium", "windsurf", "together ai", "fireworks ai", "anyscale", "modal",
+    "replicate", "character.ai", "character ai", "inflection", "runway", "pika",
+    "luma", "elevenlabs", "midjourney", "harvey", "glean", "sierra", "decagon",
+    "magic", "poolside", "stability ai", "deepmind", "google deepmind",
+    "meta ai", "nvidia research", "microsoft ai", "apple aiml", "amazon agi",
+    "tesla ai", "adept",
+    # Product / SaaS / Consumer
+    "figma", "notion", "airbnb", "uber", "doordash", "lyft", "instacart",
+    "pinterest", "snap", "reddit", "roblox", "discord", "spotify", "twitch",
+    "duolingo", "dropbox", "zoom", "slack", "twilio", "okta", "atlassian",
+    "adobe", "salesforce", "servicenow", "workday", "intuit", "paypal",
+    "docusign", "asana", "miro", "loom", "calendly", "superhuman", "substack",
+    "oracle", "canva", "rippling",
+    # Enterprise / Security / Dev Infra
+    "palantir", "crowdstrike", "palo alto networks", "sentinelone", "zscaler",
+    "wiz", "snyk", "tailscale", "1password", "deel", "gusto", "toast",
+    "bill.com", "bill", "segment", "amplitude", "mixpanel", "posthog", "hex",
+    "dbt labs", "fivetran", "airbyte",
+    # Autonomy / Hardware / Deep Tech
+    "spacex", "anduril", "waymo", "cruise", "zoox", "aurora", "applied intuition",
+    "figure", "physical intelligence", "1x", "shield ai", "saronic", "rivian",
+    "lucid", "boom", "commonwealth fusion", "helion", "varda", "relativity space",
+    "astranis", "stoke space", "wayve", "skild",
+    # Gaming / Media
+    "epic games", "riot games", "riot", "activision blizzard", "activision",
+    "electronic arts", "ea", "unity", "take-two", "take two",
+    # Commerce / Marketplaces
+    "shopify", "stockx", "goat", "whatnot", "faire", "etsy", "wayfair",
+    "chewy", "peloton", "oura", "whoop",
+    # Crypto
+    "kraken", "gemini", "circle", "uniswap", "fireblocks", "chainalysis",
 }
 
 
-def is_priority(company_name):
-    """Check if a company is in the priority list."""
+def is_watchlisted(company_name):
+    """Check if a company is on the watchlist."""
     name = company_name.lower().strip()
-    # Direct match
-    if name in PRIORITY_COMPANIES:
+    # Remove common suffixes for matching
+    cleaned = re.sub(r'\s+(inc|llc|ltd|corp|co|group|technologies|platforms|labs)\.?$', '', name)
+    if cleaned in WATCHLIST or name in WATCHLIST:
         return True
-    # Partial match (e.g., "Meta Platforms" matches "meta")
-    for p in PRIORITY_COMPANIES:
-        if p in name or name in p:
-            return True
+    # Word-boundary partial match (avoid "ea" matching "coxhealth")
+    # Only match if the watchlist entry is a full word within the name or vice versa
+    for w in WATCHLIST:
+        if len(w) <= 2:
+            # Short entries (ea, 1x) need exact match
+            if cleaned == w or name == w:
+                return True
+        else:
+            # Check if watchlist word appears as a whole word in company name
+            if re.search(r'\b' + re.escape(w) + r'\b', name):
+                return True
+            # Or company name appears as whole word in watchlist entry
+            if re.search(r'\b' + re.escape(cleaned) + r'\b', w):
+                return True
     return False
 
 
@@ -326,24 +369,13 @@ def format_row(row):
     # Clean location of HTML
     location_clean = re.sub(r'<[^>]+>', '', location).strip().replace("<br>", ", ")
 
-    priority = is_priority(company_clean)
-
-    if priority:
-        text = f"⭐ **{company_clean}** — {role_clean}"
-        if location_clean:
-            text += f" ({location_clean})"
-        if apply_link:
-            text += f"\n🔗 Apply: <{apply_link}>"
-        else:
-            text += "\n🔒 Application closed"
+    text = f"**{company_clean}** — {role_clean}"
+    if location_clean:
+        text += f" ({location_clean})"
+    if apply_link:
+        text += f"\n🔗 Apply: <{apply_link}>"
     else:
-        text = f"{company_clean} — {role_clean}"
-        if location_clean:
-            text += f" ({location_clean})"
-        if apply_link:
-            text += f" — <{apply_link}>"
-        else:
-            text += " — 🔒 closed"
+        text += "\n🔒 Application closed"
 
     return text
 
@@ -387,29 +419,21 @@ def process_commit(repo_config, sha):
             cells = [c.strip() for c in row.split("|")[1:-1]]
             return extract_company_name(cells[0]) if cells else ""
 
-    company_names = [get_company(r) for r in rows]
-    priority_names = [n for n in company_names if is_priority(n)]
-    other_names = [n for n in company_names if not is_priority(n)]
+    # Only keep watchlisted companies
+    rows = [r for r in rows if is_watchlisted(get_company(r))]
+    if not rows:
+        return
 
-    # Show priority names first in header
-    all_names = list(dict.fromkeys(priority_names + other_names))
-    names_str = ", ".join(all_names)
+    company_names = list(dict.fromkeys(get_company(r) for r in rows))
+    names_str = ", ".join(company_names)
     header = f"**{names_str}**\n**New internship(s)!** [{label}]\n\n"
 
-    # Sort rows: priority first, then others
-    priority_rows = [(r, fl) for r, fl in zip(rows, [file_labels.get(r, "unknown") for r in rows]) if is_priority(get_company(r))]
-    other_rows = [(r, fl) for r, fl in zip(rows, [file_labels.get(r, "unknown") for r in rows]) if not is_priority(get_company(r))]
-    sorted_entries = priority_rows + other_rows
-
     body = ""
-    for row, source in sorted_entries[:12]:
-        body += format_row(row) + "\n"
-        # Add extra spacing for priority
-        if is_priority(get_company(row)):
-            body += "\n"
+    for row in rows[:12]:
+        body += format_row(row) + "\n\n"
 
-    if len(sorted_entries) > 12:
-        body += f"_...and {len(sorted_entries) - 12} more_\n"
+    if len(rows) > 12:
+        body += f"_...and {len(rows) - 12} more_\n"
 
     repo_url = f"https://github.com/{repo}"
     commit_url = f"{repo_url}/commit/{sha}"
@@ -454,7 +478,11 @@ def fetch_current_listings(repo_config):
                         if "<td>0d</td>" in current_tr:
                             if "↳" not in current_tr and "Company" not in current_tr:
                                 if not should_skip_row(current_tr):
-                                    entries.append((current_tr, repo_config["label"]))
+                                    # Extract company and check watchlist
+                                    tds = re.findall(r'<td[^>]*>(.*?)</td>', current_tr)
+                                    company = extract_company_name(tds[0]) if tds else ""
+                                    if is_watchlisted(company):
+                                        entries.append((current_tr, repo_config["label"]))
                         current_tr = ""
 
             # Also handle markdown pipe tables
@@ -466,7 +494,10 @@ def fetch_current_listings(repo_config):
                     # Check for 0d or 1d age
                     if "| 0d |" in line or "| 1d |" in line:
                         if not should_skip_row(line):
-                            entries.append((line, repo_config["label"]))
+                            cells = [c.strip() for c in line.split("|")[1:-1]]
+                            company = extract_company_name(cells[0]) if cells else ""
+                            if is_watchlisted(company):
+                                entries.append((line, repo_config["label"]))
 
         except requests.RequestException as e:
             print(f"  Recap fetch error for {repo}/{filename}: {e}")
