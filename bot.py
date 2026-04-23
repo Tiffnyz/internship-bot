@@ -278,7 +278,7 @@ def file_to_label(filename):
 def send_discord(content):
     if len(content) > 1900:
         content = content[:1900] + "\n..."
-    payload = {"content": content}
+    payload = {"content": content, "flags": 4}
     resp = requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=10)
     resp.raise_for_status()
 
