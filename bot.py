@@ -17,6 +17,48 @@ POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL", "60"))
 # UTC offset for recap times (e.g., -4 for EDT, -5 for EST)
 TIMEZONE_OFFSET = int(os.environ.get("TIMEZONE_OFFSET", "-5"))
 
+# Priority companies (case-insensitive matching)
+PRIORITY_COMPANIES = {
+    # SWE
+    "meta", "apple", "amazon", "netflix", "google", "microsoft", "nvidia", "tesla",
+    "linkedin", "bytedance", "tiktok", "stripe", "databricks", "snowflake", "airbnb",
+    "uber", "doordash", "palantir", "anduril", "spacex", "coinbase", "robinhood",
+    "block", "shopify", "pinterest", "snap", "spotify", "reddit", "roblox", "discord",
+    "salesforce", "oracle", "figma", "notion", "canva", "plaid", "ramp", "rippling",
+    # ML
+    "openai", "anthropic", "google deepmind", "deepmind", "meta ai", "xai", "mistral",
+    "mistral ai", "cohere", "nvidia research", "microsoft ai", "apple aiml",
+    "amazon agi", "tesla ai", "hugging face", "huggingface", "perplexity", "scale ai",
+    "scale", "runway", "midjourney", "stability ai", "luma", "pika", "character.ai",
+    "character ai", "adept", "waymo", "zoox", "aurora", "wayve", "figure", "1x",
+    "skild", "physical intelligence",
+    # Quant
+    "jane street", "citadel securities", "citadel", "hudson river trading", "hrt",
+    "jump trading", "two sigma securities", "two sigma", "tower research",
+    "tower research capital", "optiver", "imc trading", "imc", "susquehanna", "sig",
+    "drw", "xtx markets", "xtx", "virtu financial", "virtu", "flow traders",
+    "five rings", "headlands technologies", "headlands", "akuna capital", "akuna",
+    "old mission capital", "old mission", "belvedere", "wolverine",
+    "chicago trading company", "ctc", "d. e. shaw", "de shaw", "d.e. shaw",
+    "renaissance technologies", "rentec", "pdt partners", "millennium",
+    "point72", "cubist", "balyasny", "aqr capital", "aqr", "bridgewater",
+    "g-research", "qube research", "squarepoint",
+}
+
+
+def is_priority(company_name):
+    """Check if a company is in the priority list."""
+    name = company_name.lower().strip()
+    # Direct match
+    if name in PRIORITY_COMPANIES:
+        return True
+    # Partial match (e.g., "Meta Platforms" matches "meta")
+    for p in PRIORITY_COMPANIES:
+        if p in name or name in p:
+            return True
+    return False
+
+
 # Repos to watch
 REPOS = [
     {
@@ -284,15 +326,25 @@ def format_row(row):
     # Clean location of HTML
     location_clean = re.sub(r'<[^>]+>', '', location).strip().replace("<br>", ", ")
 
-    text = f"**{company_clean}**"
-    if role_clean:
-        text += f" — {role_clean}"
-    if location_clean:
-        text += f" ({location_clean})"
-    if apply_link:
-        text += f"\n🔗 Apply: <{apply_link}>"
+    priority = is_priority(company_clean)
+
+    if priority:
+        text = f"⭐ **{company_clean}** — {role_clean}"
+        if location_clean:
+            text += f" ({location_clean})"
+        if apply_link:
+            text += f"\n🔗 Apply: <{apply_link}>"
+        else:
+            text += "\n🔒 Application closed"
     else:
-        text += "\n🔒 Application closed"
+        text = f"{company_clean} — {role_clean}"
+        if location_clean:
+            text += f" ({location_clean})"
+        if apply_link:
+            text += f" — <{apply_link}>"
+        else:
+            text += " — 🔒 closed"
+
     return text
 
 
@@ -326,37 +378,38 @@ def process_commit(repo_config, sha):
 
     mention = f"<@{DISCORD_USER_ID}>"
 
-    # Extract company names for the top line
-    company_names = []
-    for row in rows:
+    # Extract company names and sort priority first
+    def get_company(row):
         if "<td>" in row:
             tds = re.findall(r'<td[^>]*>(.*?)</td>', row)
-            if tds:
-                company_names.append(extract_company_name(tds[0]))
+            return extract_company_name(tds[0]) if tds else ""
         else:
             cells = [c.strip() for c in row.split("|")[1:-1]]
-            if cells:
-                company_names.append(extract_company_name(cells[0]))
+            return extract_company_name(cells[0]) if cells else ""
 
-    # Company names first, bolded, so they show in mobile notification preview
-    names_str = ", ".join(dict.fromkeys(company_names))  # dedupe, preserve order
+    company_names = [get_company(r) for r in rows]
+    priority_names = [n for n in company_names if is_priority(n)]
+    other_names = [n for n in company_names if not is_priority(n)]
+
+    # Show priority names first in header
+    all_names = list(dict.fromkeys(priority_names + other_names))
+    names_str = ", ".join(all_names)
     header = f"**{names_str}**\n**New internship(s)!** [{label}]\n\n"
 
-    # Group by source file
-    sections = {}
-    for row in rows:
-        source = file_labels.get(row, "unknown")
-        source_label = file_to_label(source)
-        sections.setdefault(source_label, []).append(row)
+    # Sort rows: priority first, then others
+    priority_rows = [(r, fl) for r, fl in zip(rows, [file_labels.get(r, "unknown") for r in rows]) if is_priority(get_company(r))]
+    other_rows = [(r, fl) for r, fl in zip(rows, [file_labels.get(r, "unknown") for r in rows]) if not is_priority(get_company(r))]
+    sorted_entries = priority_rows + other_rows
 
     body = ""
-    for section, section_rows in sections.items():
-        if len(sections) > 1:
-            body += f"__**{section}**__\n"
-        for row in section_rows[:8]:
-            body += format_row(row) + "\n\n"
-        if len(section_rows) > 8:
-            body += f"_...and {len(section_rows) - 8} more_\n\n"
+    for row, source in sorted_entries[:12]:
+        body += format_row(row) + "\n"
+        # Add extra spacing for priority
+        if is_priority(get_company(row)):
+            body += "\n"
+
+    if len(sorted_entries) > 12:
+        body += f"_...and {len(sorted_entries) - 12} more_\n"
 
     repo_url = f"https://github.com/{repo}"
     commit_url = f"{repo_url}/commit/{sha}"
