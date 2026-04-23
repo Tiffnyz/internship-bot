@@ -3,6 +3,7 @@ import os
 import re
 import sys
 import time
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 sys.stdout.reconfigure(line_buffering=True)
@@ -13,6 +14,8 @@ DISCORD_WEBHOOK_URL = os.environ["DISCORD_WEBHOOK_URL"]
 DISCORD_USER_ID = os.environ["DISCORD_USER_ID"]
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL", "60"))
+# UTC offset for recap times (e.g., -4 for EDT, -5 for EST)
+TIMEZONE_OFFSET = int(os.environ.get("TIMEZONE_OFFSET", "-4"))
 
 # Repos to watch
 REPOS = [
@@ -363,6 +366,109 @@ def process_commit(repo_config, sha):
     print(f"  → Notified: {len(rows)} new posting(s) from {repo}")
 
 
+def fetch_current_listings(repo_config):
+    """Fetch the current README and extract all 0d entries."""
+    repo = repo_config["repo"]
+    files = repo_config["files"] or ["README.md"]
+    entries = []
+
+    for filename in files:
+        url = f"https://raw.githubusercontent.com/{repo}/main/{filename}"
+        try:
+            resp = requests.get(url, timeout=15)
+            if resp.status_code == 404:
+                # Try dev branch (Simplify uses dev)
+                url = f"https://raw.githubusercontent.com/{repo}/dev/{filename}"
+                resp = requests.get(url, timeout=15)
+            if resp.status_code != 200:
+                continue
+
+            content = resp.text
+            # Parse HTML table rows
+            in_tr = False
+            current_tr = ""
+            for line in content.splitlines():
+                line = line.strip()
+                if "<tr>" in line:
+                    in_tr = True
+                    current_tr = ""
+                    continue
+                if in_tr:
+                    current_tr += " " + line
+                    if "</tr>" in line:
+                        in_tr = False
+                        # Only include 0d entries (posted today)
+                        if "<td>0d</td>" in current_tr:
+                            if "↳" not in current_tr and "Company" not in current_tr:
+                                if not should_skip_row(current_tr):
+                                    entries.append((current_tr, repo_config["label"]))
+                        current_tr = ""
+
+            # Also handle markdown pipe tables
+            for line in content.splitlines():
+                line = line.strip()
+                if line.startswith("|") and line.count("|") >= 3:
+                    if "---" in line or "Company" in line or "↳" in line:
+                        continue
+                    # Check for 0d or 1d age
+                    if "| 0d |" in line or "| 1d |" in line:
+                        if not should_skip_row(line):
+                            entries.append((line, repo_config["label"]))
+
+        except requests.RequestException as e:
+            print(f"  Recap fetch error for {repo}/{filename}: {e}")
+
+    return entries
+
+
+def send_recap():
+    """Send a 12-hour recap of all recent internships."""
+    print(f"[{time.strftime('%H:%M:%S')}] Generating recap...")
+    all_entries = []
+    for repo_config in REPOS:
+        entries = fetch_current_listings(repo_config)
+        all_entries.extend(entries)
+
+    mention = f"<@{DISCORD_USER_ID}>"
+    tz = timezone(timedelta(hours=TIMEZONE_OFFSET))
+    now = datetime.now(tz)
+    time_str = now.strftime("%I:%M %p %Z")
+
+    if not all_entries:
+        content = f"**12-Hour Recap** ({time_str})\nNo new internships posted recently.\n{mention}"
+        send_discord(content)
+        print("  Recap sent (no new entries)")
+        return
+
+    # Group by source label
+    by_source = {}
+    for row, label in all_entries:
+        by_source.setdefault(label, []).append(row)
+
+    header = f"**12-Hour Recap** ({time_str}) — {len(all_entries)} posting(s)\n\n"
+    body = ""
+
+    for label, rows_list in by_source.items():
+        if len(by_source) > 1:
+            body += f"__**{label}**__\n"
+        for row in rows_list[:15]:
+            body += format_row(row) + "\n\n"
+        if len(rows_list) > 15:
+            body += f"_...and {len(rows_list) - 15} more_\n\n"
+
+    body += mention
+
+    # Discord has 2000 char limit — split into multiple messages if needed
+    full = header + body
+    if len(full) <= 1900:
+        send_discord(full)
+    else:
+        # Send header + as many rows as fit
+        send_discord(header + body[:1850] + f"\n...\n{mention}")
+
+    print(f"  Recap sent: {len(all_entries)} entries")
+
+
 def poll():
     seen = load_seen()
     print(f"Internship bot started. Polling {len(REPOS)} repos every {POLL_INTERVAL}s...")
@@ -385,7 +491,22 @@ def poll():
                 seen[repo] = []
     save_seen(seen)
 
+    last_recap_hour = None
+
     while True:
+        # Check if it's recap time (10am or 10pm local time)
+        tz = timezone(timedelta(hours=TIMEZONE_OFFSET))
+        now = datetime.now(tz)
+        current_hour = now.hour
+        if current_hour in (10, 22) and last_recap_hour != current_hour:
+            last_recap_hour = current_hour
+            try:
+                send_recap()
+            except Exception as e:
+                print(f"Recap error: {e}")
+        elif current_hour not in (10, 22):
+            last_recap_hour = None  # Reset so next 10/22 triggers
+
         for repo_config in REPOS:
             repo = repo_config["repo"]
             try:
