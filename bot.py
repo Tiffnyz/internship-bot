@@ -15,7 +15,7 @@ DISCORD_USER_ID = os.environ["DISCORD_USER_ID"]
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL", "60"))
 # UTC offset for recap times (e.g., -4 for EDT, -5 for EST)
-TIMEZONE_OFFSET = int(os.environ.get("TIMEZONE_OFFSET", "-4"))
+TIMEZONE_OFFSET = int(os.environ.get("TIMEZONE_OFFSET", "-5"))
 
 # Repos to watch
 REPOS = [
