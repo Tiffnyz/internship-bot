@@ -77,11 +77,14 @@ def parse_added_rows(diff_text, allowed_files=None):
     file_labels = {}
     # Buffer for multi-line HTML table rows (<tr>...</tr>)
     current_tr = ""
-    in_added_tr = False
+    in_tr = False
+    has_added_content = False
 
     for line in diff_text.splitlines():
         if line.startswith("+++ b/"):
             current_file = line[6:]
+            continue
+        if line.startswith("--- "):
             continue
 
         if allowed_files and current_file not in allowed_files:
@@ -89,23 +92,47 @@ def parse_added_rows(diff_text, allowed_files=None):
         if not allowed_files and not current_file.endswith(".md"):
             continue
 
-        if not line.startswith("+") or line.startswith("+++"):
-            in_added_tr = False
-            current_tr = ""
+        # For HTML rows: <tr> can be a context line (space prefix) or added line (+)
+        # We need to track the full row and check if it has any added content
+        is_added = line.startswith("+")
+        is_context = line.startswith(" ")
+        is_removed = line.startswith("-")
+
+        # Skip removed lines
+        if is_removed:
             continue
 
-        clean = line[1:].strip()
+        # Strip the prefix to get content
+        if is_added:
+            clean = line[1:].strip()
+        elif is_context:
+            clean = line[1:].strip()
+        else:
+            # Hunk headers etc — reset state
+            in_tr = False
+            current_tr = ""
+            has_added_content = False
+            continue
 
         # HTML table format (Simplify repos)
         if "<tr>" in clean:
-            in_added_tr = True
+            in_tr = True
             current_tr = ""
+            has_added_content = False
+            if is_added:
+                has_added_content = True
             continue
-        if in_added_tr:
+
+        if in_tr:
             current_tr += " " + clean
+            if is_added:
+                has_added_content = True
             if "</tr>" in clean:
-                in_added_tr = False
-                # Skip header rows, sub-rows, and inactive/closed entries
+                in_tr = False
+                if not has_added_content:
+                    current_tr = ""
+                    continue
+                # Skip sub-rows and header rows
                 if "↳" in current_tr or "Company" in current_tr:
                     current_tr = ""
                     continue
@@ -118,7 +145,7 @@ def parse_added_rows(diff_text, allowed_files=None):
             continue
 
         # Markdown pipe table format (speedyapply)
-        if clean.startswith("|") and clean.count("|") >= 3:
+        if is_added and clean.startswith("|") and clean.count("|") >= 3:
             if "---" in clean or "Company" in clean or "↳" in clean:
                 continue
             if should_skip_row(clean):
