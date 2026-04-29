@@ -575,21 +575,21 @@ def poll():
                 seen[repo] = []
     save_seen(seen)
 
-    last_recap_hour = None
-
     while True:
         # Check if it's recap time (10am or 10pm local time)
         tz = timezone(timedelta(hours=TIMEZONE_OFFSET))
         now = datetime.now(tz)
         current_hour = now.hour
-        if current_hour in (10, 22) and last_recap_hour != current_hour:
-            last_recap_hour = current_hour
-            try:
-                send_recap()
-            except Exception as e:
-                print(f"Recap error: {e}")
-        elif current_hour not in (10, 22):
-            last_recap_hour = None  # Reset so next 10/22 triggers
+        if current_hour in (10, 22):
+            # Use date+hour key so the check survives restarts (persisted in seen_commits.json)
+            recap_key = now.strftime("%Y-%m-%d-%H")
+            if seen.get("last_recap_key") != recap_key:
+                seen["last_recap_key"] = recap_key
+                save_seen(seen)
+                try:
+                    send_recap()
+                except Exception as e:
+                    print(f"Recap error: {e}")
 
         for repo_config in REPOS:
             repo = repo_config["repo"]
