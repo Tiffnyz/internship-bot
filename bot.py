@@ -397,7 +397,20 @@ def send_discord(content):
     resp.raise_for_status()
 
 
-def process_commit(repo_config, sha):
+def row_fingerprint(row):
+    """Create a dedup key for a job row based on company + role."""
+    if "<td>" in row:
+        cells = re.findall(r'<td[^>]*>(.*?)</td>', row)
+        company = extract_company_name(cells[0]).lower().strip() if cells else ""
+        role = re.sub(r'<[^>]+>', '', cells[1]).lower().strip() if len(cells) > 1 else ""
+    else:
+        cells = [c.strip() for c in row.split("|")[1:-1]]
+        company = extract_company_name(cells[0]).lower().strip() if cells else ""
+        role = re.sub(r'<[^>]+>', '', cells[1]).lower().strip() if len(cells) > 1 else ""
+    return f"{company}|{role}"
+
+
+def process_commit(repo_config, sha, seen):
     repo = repo_config["repo"]
     label = repo_config["label"]
     allowed_files = repo_config["files"]
@@ -424,6 +437,13 @@ def process_commit(repo_config, sha):
     if not rows:
         return
 
+    # Deduplicate: skip rows already pinged in previous commits/repos
+    notified = set(seen.get("notified_rows", []))
+    rows = [r for r in rows if row_fingerprint(r) not in notified]
+    if not rows:
+        print(f"  → Skipping commit {sha[:8]} (all rows already notified)")
+        return
+
     company_names = list(dict.fromkeys(get_company(r) for r in rows))
     names_str = ", ".join(company_names)
     header = f"**{names_str}**\n**New internship(s)!** [{label}]\n\n"
@@ -441,6 +461,10 @@ def process_commit(repo_config, sha):
 
     send_discord(header + body)
     print(f"  → Notified: {len(rows)} new posting(s) from {repo}")
+
+    # Persist fingerprints so we never double-ping the same listing
+    notified.update(row_fingerprint(r) for r in rows)
+    seen["notified_rows"] = list(notified)[-1000:]
 
 
 def fetch_current_listings(repo_config):
@@ -607,7 +631,7 @@ def poll():
                         # Mark as seen BEFORE processing so we never retry on failure
                         seen_set.add(sha)
                         try:
-                            process_commit(repo_config, sha)
+                            process_commit(repo_config, sha, seen)
                         except Exception as e:
                             print(f"  Error processing {sha[:8]}: {e}")
 
