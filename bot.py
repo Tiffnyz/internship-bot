@@ -446,7 +446,7 @@ def process_commit(repo_config, sha, seen):
 
     company_names = list(dict.fromkeys(get_company(r) for r in rows))
     names_str = ", ".join(company_names)
-    header = f"**{names_str}**\n**New internship(s)!** [{label}]\n\n"
+    header = f"🔥 **{names_str}**\n**New internship(s)!** [{label}]\n\n"
 
     body = ""
     for row in rows[:12]:
@@ -553,7 +553,7 @@ def send_recap():
     for row, label in all_entries:
         by_source.setdefault(label, []).append(row)
 
-    header = f"**12-Hour Recap** ({time_str}) — {len(all_entries)} posting(s)\n\n"
+    header = f"🔥 **12-Hour Recap** ({time_str}) — {len(all_entries)} posting(s)\n\n"
     body = ""
 
     for label, rows_list in by_source.items():
